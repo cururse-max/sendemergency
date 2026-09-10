@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartRing SOS Controller</title>
+  <style>
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #f4f6f9; padding: 20px; max-width: 500px; margin: 0 auto; color: #333; }
+    .card { background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.08); margin-bottom: 16px; }
+    h2 { margin-top: 0; color: #1e293b; font-size: 18px; border-bottom: 2px solid #f1f5f9; padding-bottom: 8px; }
+    label { font-size: 13px; font-weight: bold; color: #64748b; display: block; margin-bottom: 6px; }
+    input, textarea { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 14px; margin-bottom: 12px; transition: 0.2s; }
+    input:focus, textarea:focus { border-color: #2563eb; outline: none; }
+    textarea { height: 70px; resize: none; }
+    button { width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    .btn-save { background-color: #0f172a; color: white; margin-bottom: 8px; }
+    .btn-connect { background-color: #2563eb; color: white; }
+    .btn-connect:hover { background-color: #1d4ed8; }
+    .btn-disconnect { background-color: #ef4444; color: white; margin-top: 8px; }
+    .status-box { font-size: 14px; padding: 12px; border-radius: 8px; background: #f1f5f9; color: #475569; font-weight: 600; text-align: center; }
+    .log-box { background: #0f172a; color: #38bdf8; font-family: monospace; padding: 12px; border-radius: 8px; height: 130px; overflow-y: auto; font-size: 12px; }
+    .hint { font-size: 11px; color: #94a3b8; margin-top: -8px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+
+  <!-- 1. 설정 카드 (브라우저 자동 저장) -->
+  <div class="card">
+    <h2>⚙️ 비상 SOS 및 매크로드로이드 설정</h2>
+    
+    <label for="phone">비상 연락처 (전화번호)</label>
+    <input type="tel" id="phone" placeholder="01012345678">
+
+    <label for="message">위급 메시지 내용</label>
+    <textarea id="message" placeholder="위급 상황 시 발송할 메시지를 입력하세요."></textarea>
+
+    <label for="webhookUrl">MacroDroid Webhook URL</label>
+    <input type="url" id="webhookUrl" placeholder="https://trigger.macrodroid.com/...">
+    <div class="hint">MacroDroid에서 생성된 Webhook URL을 입력하세요.</div>
+
+    <button class="btn-save" onclick="saveSettings()">💾 설정 저장하기</button>
+  </div>
+
+  <!-- 2. BLE 연결 카드 -->
+  <div class="card">
+    <h2>📡 스마트링 연결</h2>
+    <div id="status" class="status-box" style="margin-bottom: 12px;">상태: 연결되지 않음</div>
+    <button id="btnConnect" class="btn-connect" onclick="connectBLE()">SmartRing 연결하기</button>
+    <button id="btnDisconnect" class="btn-disconnect" onclick="disconnectBLE()" style="display:none;">연결 해제</button>
+  </div>
+
+  <!-- 3. 모니터링 로그 -->
+  <div class="card">
+    <h2>📜 실시간 로그</h2>
+    <div id="log" class="log-box">대기 중...<br></div>
+  </div>
+
+  <script>
+    const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+    const CHARACTERISTIC_UUID_TX = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+    let bleDevice = null;
+    let txCharacteristic = null;
+
+    // 페이지 로드 시 기존 저장 데이터 불러오기
+    window.onload = function() {
+      if (localStorage.getItem("sos_phone")) {
+        document.getElementById("phone").value = localStorage.getItem("sos_phone");
+      }
+      if (localStorage.getItem("sos_message")) {
+        document.getElementById("message").value = localStorage.getItem("sos_message");
+      } else {
+        document.getElementById("message").value = "나 지금 위급 상황이야! 위치 확인하고 도와줘!";
+      }
+      if (localStorage.getItem("sos_webhook")) {
+        document.getElementById("webhookUrl").value = localStorage.getItem("sos_webhook");
+      }
+      log("기존 저장된 설정을 로드했습니다.");
+    };
+
+    // 설정 정보 브라우저(LocalStorage)에 저장
+    function saveSettings() {
+      const phone = document.getElementById("phone").value.trim();
+      const message = document.getElementById("message").value.trim();
+      const webhook = document.getElementById("webhookUrl").value.trim();
+
+      localStorage.setItem("sos_phone", phone);
+      localStorage.setItem("sos_message", message);
+      localStorage.setItem("sos_webhook", webhook);
+
+      alert("✅ 설정이 안전하게 브라우저에 저장되었습니다!");
+      log("💾 설정 데이터 저장 완료");
+    }
+
+    function log(msg) {
+      const logDiv = document.getElementById("log");
+      const time = new Date().toLocaleTimeString();
+      logDiv.innerHTML += `[${time}] ${msg}<br>`;
+      logDiv.scrollTop = logDiv.scrollHeight;
+    }
+
+    function updateStatus(text, isConnected) {
+      const statusDiv = document.getElementById("status");
+      statusDiv.innerText = `상태: ${text}`;
+      statusDiv.style.background = isConnected ? "#dcfce7" : "#f1f5f9";
+      statusDiv.style.color = isConnected ? "#166534" : "#475569";
+
+      document.getElementById("btnConnect").style.display = isConnected ? "none" : "block";
+      document.getElementById("btnDisconnect").style.display = isConnected ? "block" : "none";
+    }
+
+    // 1. Web Bluetooth 연결 (제시해주신 ESP32 디바이스 이름과 매칭)
+    async function connectBLE() {
+      try {
+        log("스마트링 검색 중...");
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ name: "SmartRing_SOS_Test" }],
+          optionalServices: [SERVICE_UUID]
+        });
+
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+        log("GATT 서버 연결 중...");
+        const server = await bleDevice.gatt.connect();
+
+        log("서비스 탐색 중...");
+        const service = await server.getPrimaryService(SERVICE_UUID);
+
+        log("특성 탐색 중...");
+        txCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID_TX);
+
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', handleSosSignal);
+
+        updateStatus("스마트링 연결 완료!", true);
+        log("✅ 연결 성공! SOS 신호 대기 중...");
+
+      } catch (error) {
+        log(`❌ 연결 실패: ${error}`);
+        updateStatus("연결 실패", false);
+      }
+    }
+
+    function disconnectBLE() {
+      if (bleDevice && bleDevice.gatt.connected) {
+        bleDevice.gatt.disconnect();
+      }
+    }
+
+    function onDisconnected() {
+      updateStatus("연결 해제됨", false);
+      log("⚠️ 스마트링 연결이 끊어졌습니다.");
+    }
+
+    // 2. SOS 신호 수신
+    function handleSosSignal(event) {
+      const decoder = new TextDecoder('utf-8');
+      const value = decoder.decode(event.target.value);
+
+      if (value.trim() === "SOS") {
+        log("🚨 [SOS 이벤트] 스마트링 더블 클릭 감지!");
+        triggerMacroDroid();
+      }
+    }
+
+    // 3. MacroDroid Webhook 호출 (GPS 및 메시지 파라미터 전달)
+    function triggerMacroDroid() {
+      const phone = document.getElementById("phone").value.trim();
+      const message = document.getElementById("message").value.trim();
+      const webhookUrl = document.getElementById("webhookUrl").value.trim();
+
+      if (!webhookUrl) {
+        alert("MacroDroid Webhook URL이 입력되지 않았습니다!");
+        log("❌ 전송 실패: Webhook URL 미입력");
+        return;
+      }
+
+      log("📍 GPS 위치 측정 중...");
+
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (position) => {
+            const lat = position.coords.latitude;
+            const lon = position.coords.longitude;
+            
+            log(`위치 측정 완료: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
+            sendToMacroDroid(webhookUrl, phone, message, lat, lon);
+          },
+          (error) => {
+            log(`⚠️ 위치 측정 실패 (${error.message}). 위치 없이 메시지만 전송합니다.`);
+            sendToMacroDroid(webhookUrl, phone, message, "", "");
+          },
+          { enableHighAccuracy: true, timeout: 5000 }
+        );
+      } else {
+        sendToMacroDroid(webhookUrl, phone, message, "", "");
+      }
+    }
+
+    // MacroDroid로 HTTP GET 요청 발송
+    function sendToMacroDroid(baseUrl, phone, message, lat, lon) {
+      log("🚀 MacroDroid로 SOS 신호 전송 시작...");
+
+      // URL Query Parameter에 입력값 탑재
+      let targetUrl = `${baseUrl}?phone=${encodeURIComponent(phone)}&msg=${encodeURIComponent(message)}`;
+      if (lat && lon) {
+        targetUrl += `&lat=${lat}&lon=${lon}`;
+      }
+
+      fetch(targetUrl, { mode: 'no-cors' })
+        .then(() => {
+          log("✅ MacroDroid로 신호 발송 성공! (문자 자동 발송 완료)");
+        })
+        .catch((err) => {
+          log(`❌ MacroDroid 호출 실패: ${err}`);
+        });
+    }
+  </script>
+</body>
+</html>
