@@ -25,7 +25,7 @@
 </head>
 <body>
 
-  <!-- 1. 설정 카드 (브라우저 자동 저장) -->
+  <!-- 1. 설정 카드 -->
   <div class="card">
     <h2>⚙️ 비상 SOS 및 매크로드로이드 설정</h2>
     
@@ -63,7 +63,6 @@
     let bleDevice = null;
     let txCharacteristic = null;
 
-    // 페이지 로드 시 기존 저장 데이터 불러오기
     window.onload = function() {
       if (localStorage.getItem("sos_phone")) {
         document.getElementById("phone").value = localStorage.getItem("sos_phone");
@@ -79,7 +78,6 @@
       log("기존 저장된 설정을 로드했습니다.");
     };
 
-    // 설정 정보 브라우저(LocalStorage)에 저장
     function saveSettings() {
       const phone = document.getElementById("phone").value.trim();
       const message = document.getElementById("message").value.trim();
@@ -89,7 +87,7 @@
       localStorage.setItem("sos_message", message);
       localStorage.setItem("sos_webhook", webhook);
 
-      alert("✅ 설정이 안전하게 브라우저에 저장되었습니다!");
+      alert("✅ 설정이 저장되었습니다!");
       log("💾 설정 데이터 저장 완료");
     }
 
@@ -110,7 +108,6 @@
       document.getElementById("btnDisconnect").style.display = isConnected ? "block" : "none";
     }
 
-    // 1. Web Bluetooth 연결 (제시해주신 ESP32 디바이스 이름과 매칭)
     async function connectBLE() {
       try {
         log("스마트링 검색 중...");
@@ -153,7 +150,6 @@
       log("⚠️ 스마트링 연결이 끊어졌습니다.");
     }
 
-    // 2. SOS 신호 수신
     function handleSosSignal(event) {
       const decoder = new TextDecoder('utf-8');
       const value = decoder.decode(event.target.value);
@@ -164,14 +160,13 @@
       }
     }
 
-    // 3. MacroDroid Webhook 호출 (GPS 및 메시지 파라미터 전달)
     function triggerMacroDroid() {
       const phone = document.getElementById("phone").value.trim();
       const message = document.getElementById("message").value.trim();
       const webhookUrl = document.getElementById("webhookUrl").value.trim();
 
       if (!webhookUrl) {
-        alert("MacroDroid Webhook URL이 입력되지 않았습니다!");
+        alert("MacroDroid Webhook URL을 입력하세요!");
         log("❌ 전송 실패: Webhook URL 미입력");
         return;
       }
@@ -183,12 +178,11 @@
           (position) => {
             const lat = position.coords.latitude;
             const lon = position.coords.longitude;
-            
             log(`위치 측정 완료: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
             sendToMacroDroid(webhookUrl, phone, message, lat, lon);
           },
           (error) => {
-            log(`⚠️ 위치 측정 실패 (${error.message}). 위치 없이 메시지만 전송합니다.`);
+            log(`⚠️ 위치 측정 실패. 위치 없이 메시지만 전송합니다.`);
             sendToMacroDroid(webhookUrl, phone, message, "", "");
           },
           { enableHighAccuracy: true, timeout: 5000 }
@@ -198,11 +192,9 @@
       }
     }
 
-    // MacroDroid로 HTTP GET 요청 발송
     function sendToMacroDroid(baseUrl, phone, message, lat, lon) {
       log("🚀 MacroDroid로 SOS 신호 전송 시작...");
 
-      // URL Query Parameter에 입력값 탑재
       let targetUrl = `${baseUrl}?phone=${encodeURIComponent(phone)}&msg=${encodeURIComponent(message)}`;
       if (lat && lon) {
         targetUrl += `&lat=${lat}&lon=${lon}`;
@@ -210,7 +202,7 @@
 
       fetch(targetUrl, { mode: 'no-cors' })
         .then(() => {
-          log("✅ MacroDroid로 신호 발송 성공! (문자 자동 발송 완료)");
+          log("✅ MacroDroid 신호 전송 성공!");
         })
         .catch((err) => {
           log(`❌ MacroDroid 호출 실패: ${err}`);
