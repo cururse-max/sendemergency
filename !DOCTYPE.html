@@ -109,37 +109,36 @@
     }
 
     async function connectBLE() {
-  try {
-    log("스마트링 검색 중...");
-    
-    // 💡 name 필터 대신 acceptAllDevices: true 사용
-    bleDevice = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SERVICE_UUID]
-    });
+      try {
+        log("스마트링 검색 중...");
+        
+        bleDevice = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: [SERVICE_UUID]
+        });
 
-    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+        bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
 
-    log("GATT 서버 연결 중...");
-    const server = await bleDevice.gatt.connect();
+        log("GATT 서버 연결 중...");
+        const server = await bleDevice.gatt.connect();
 
-    log("서비스 탐색 중...");
-    const service = await server.getPrimaryService(SERVICE_UUID);
+        log("서비스 탐색 중...");
+        const service = await server.getPrimaryService(SERVICE_UUID);
 
-    log("특성 탐색 중...");
-    txCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID_TX);
+        log("특성 탐색 중...");
+        txCharacteristic = await service.getCharacteristic(CHARACTERISTIC_UUID_TX);
 
-    await txCharacteristic.startNotifications();
-    txCharacteristic.addEventListener('characteristicvaluechanged', handleSosSignal);
+        await txCharacteristic.startNotifications();
+        txCharacteristic.addEventListener('characteristicvaluechanged', handleSosSignal);
 
-    updateStatus("스마트링 연결 완료!", true);
-    log("✅ 연결 성공! SOS 신호 대기 중...");
+        updateStatus("스마트링 연결 완료!", true);
+        log("✅ 연결 성공! SOS 신호 대기 중...");
 
-  } catch (error) {
-    log(`❌ 연결 실패: ${error}`);
-    updateStatus("연결 실패", false);
-  }
-}
+      } catch (error) {
+        log(`❌ 연결 실패: ${error}`);
+        updateStatus("연결 실패", false);
+      }
+    }
 
     function disconnectBLE() {
       if (bleDevice && bleDevice.gatt.connected) {
@@ -173,38 +172,14 @@
         return;
       }
 
-      log("📍 GPS 위치 측정 중...");
+      // MacroDroid 변수명(sos_phone, sos_message)에 맞춰 파라미터 구성
+      const targetUrl = `${webhookUrl}?sos_phone=${encodeURIComponent(phone)}&sos_message=${encodeURIComponent(message)}`;
 
-      if ("geolocation" in navigator) {
-        navigator.geolocation.getCurrentPosition(
-          (position) => {
-            const lat = position.coords.latitude;
-            const lon = position.coords.longitude;
-            log(`위치 측정 완료: ${lat.toFixed(4)}, ${lon.toFixed(4)}`);
-            sendToMacroDroid(webhookUrl, phone, message, lat, lon);
-          },
-          (error) => {
-            log(`⚠️ 위치 측정 실패. 위치 없이 메시지만 전송합니다.`);
-            sendToMacroDroid(webhookUrl, phone, message, "", "");
-          },
-          { enableHighAccuracy: true, timeout: 5000 }
-        );
-      } else {
-        sendToMacroDroid(webhookUrl, phone, message, "", "");
-      }
-    }
-
-    function sendToMacroDroid(baseUrl, phone, message, lat, lon) {
-      log("🚀 MacroDroid로 SOS 신호 전송 시작...");
-
-      let targetUrl = `${baseUrl}?phone=${encodeURIComponent(phone)}&msg=${encodeURIComponent(message)}`;
-      if (lat && lon) {
-        targetUrl += `&lat=${lat}&lon=${lon}`;
-      }
+      log("🚀 MacroDroid Webhook 호출 시작...");
 
       fetch(targetUrl, { mode: 'no-cors' })
         .then(() => {
-          log("✅ MacroDroid 신호 전송 성공!");
+          log("✅ MacroDroid로 데이터 전달 완료! (MacroDroid가 GPS 측정 및 SMS 발송 진행)");
         })
         .catch((err) => {
           log(`❌ MacroDroid 호출 실패: ${err}`);
